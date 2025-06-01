@@ -342,6 +342,63 @@ class AdvancedFPASystem:
         
         return kpis
     
+    def generate_alerts(self, data, kpis):
+        """Generate intelligent alerts"""
+        alerts = []
+        
+        try:
+            # Revenue alerts
+            revenue_growth = kpis.get('revenue_growth_rate', 0)
+            if revenue_growth < -10:
+                alerts.append({
+                    'type': 'critical',
+                    'category': 'Revenue',
+                    'message': f"🚨 CRITICAL: Revenue declining by {revenue_growth:.1f}% - Immediate action required",
+                    'recommendation': 'Implement emergency revenue recovery plan'
+                })
+            elif revenue_growth < -5:
+                alerts.append({
+                    'type': 'warning',
+                    'category': 'Revenue',
+                    'message': f"⚠️ WARNING: Revenue declining by {revenue_growth:.1f}%",
+                    'recommendation': 'Review sales strategy and market conditions'
+                })
+            
+            # Margin alerts
+            margin_risk = kpis.get('margin_compression_risk', 0)
+            if margin_risk > 5:
+                alerts.append({
+                    'type': 'critical',
+                    'category': 'Profitability',
+                    'message': f"🔴 CRITICAL: Severe margin compression ({margin_risk:.1f}%)",
+                    'recommendation': 'Urgent cost structure review required'
+                })
+            
+            # Customer health alerts
+            churn_risk = kpis.get('churn_risk_prediction', 0)
+            if churn_risk > 40:
+                alerts.append({
+                    'type': 'warning',
+                    'category': 'Customer',
+                    'message': f"🔥 HIGH CHURN RISK: {churn_risk:.1f}%",
+                    'recommendation': 'Launch customer retention initiatives'
+                })
+            
+            # Positive alerts
+            if revenue_growth > 20:
+                alerts.append({
+                    'type': 'success',
+                    'category': 'Growth',
+                    'message': f"🚀 EXCEPTIONAL GROWTH: Revenue up {revenue_growth:.1f}%",
+                    'recommendation': 'Scale successful strategies'
+                })
+                
+        except Exception as e:
+            # If there's any error in alert generation, just return empty list
+            alerts = []
+        
+        return alerts
+    
     def advanced_forecast(self, data, metric='Revenue', periods=30):
         """Advanced forecasting using multiple methods"""
         if PROPHET_AVAILABLE:
@@ -458,63 +515,6 @@ class AdvancedFPASystem:
             results[scenario_name] = scenario_data
         
         return results
-    
-    def generate_alerts(self, data, kpis):
-        """Generate intelligent alerts"""
-        alerts = []
-        
-        try:
-            # Revenue alerts
-            revenue_growth = kpis.get('revenue_growth_rate', 0)
-            if revenue_growth < -10:
-                alerts.append({
-                    'type': 'critical',
-                    'category': 'Revenue',
-                    'message': f"🚨 CRITICAL: Revenue declining by {revenue_growth:.1f}% - Immediate action required",
-                    'recommendation': 'Implement emergency revenue recovery plan'
-                })
-            elif revenue_growth < -5:
-                alerts.append({
-                    'type': 'warning',
-                    'category': 'Revenue',
-                    'message': f"⚠️ WARNING: Revenue declining by {revenue_growth:.1f}%",
-                    'recommendation': 'Review sales strategy and market conditions'
-                })
-            
-            # Margin alerts
-            margin_risk = kpis.get('margin_compression_risk', 0)
-            if margin_risk > 5:
-                alerts.append({
-                    'type': 'critical',
-                    'category': 'Profitability',
-                    'message': f"🔴 CRITICAL: Severe margin compression ({margin_risk:.1f}%)",
-                    'recommendation': 'Urgent cost structure review required'
-                })
-            
-            # Customer health alerts
-            churn_risk = kpis.get('churn_risk_prediction', 0)
-            if churn_risk > 40:
-                alerts.append({
-                    'type': 'warning',
-                    'category': 'Customer',
-                    'message': f"🔥 HIGH CHURN RISK: {churn_risk:.1f}%",
-                    'recommendation': 'Launch customer retention initiatives'
-                })
-            
-            # Positive alerts
-            if revenue_growth > 20:
-                alerts.append({
-                    'type': 'success',
-                    'category': 'Growth',
-                    'message': f"🚀 EXCEPTIONAL GROWTH: Revenue up {revenue_growth:.1f}%",
-                    'recommendation': 'Scale successful strategies'
-                })
-                
-        except Exception as e:
-            # If there's any error in alert generation, just return empty list
-            alerts = []
-        
-        return alerts
 
 # Streamlit App Implementation
 def main():
