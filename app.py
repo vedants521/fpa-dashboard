@@ -18,7 +18,6 @@ except ImportError:
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.preprocessing import StandardScaler
 import json
 import hashlib
 
@@ -79,14 +78,6 @@ st.markdown("""
         margin: 0.5rem 0;
         border-left: 5px solid #00d2d3;
     }
-    .insight-card {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 1.5rem;
-        border-radius: 15px;
-        margin: 1rem 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -110,7 +101,7 @@ class AdvancedFPASystem:
                     data = pd.read_csv('superstore_dataset.csv')
                     st.success("✅ Superstore dataset loaded from repository!")
                 except FileNotFoundError:
-                    st.info("📁 Superstore dataset not found in repository. Please upload a CSV file or use sample data.")
+                    st.info("📁 Superstore dataset not found in repository. Using sample data.")
                     return self.generate_enhanced_sample_data()
             
             # Process Superstore data
@@ -314,13 +305,13 @@ class AdvancedFPASystem:
     def calculate_executive_kpis(self, data):
         """Calculate comprehensive executive-level KPIs"""
         recent_data = data.tail(90)
-        prev_data = data.tail(180).head(90)
+        prev_data = data.tail(180).head(90) if len(data) > 180 else data.head(max(1, len(data)//2))
         
         kpis = {
             # Revenue Analytics
             'total_revenue': recent_data['Revenue'].sum(),
-            'revenue_growth_rate': ((recent_data['Revenue'].mean() - prev_data['Revenue'].mean()) / prev_data['Revenue'].mean()) * 100 if len(prev_data) > 0 else 0,
-            'revenue_volatility': recent_data['Revenue'].std() / recent_data['Revenue'].mean() * 100,
+            'revenue_growth_rate': ((recent_data['Revenue'].mean() - prev_data['Revenue'].mean()) / prev_data['Revenue'].mean()) * 100 if len(prev_data) > 0 and prev_data['Revenue'].mean() > 0 else 0,
+            'revenue_volatility': recent_data['Revenue'].std() / recent_data['Revenue'].mean() * 100 if recent_data['Revenue'].mean() > 0 else 0,
             'quarterly_run_rate': recent_data['Revenue'].sum() * 4,
             
             # Profitability Analytics
@@ -331,7 +322,7 @@ class AdvancedFPASystem:
             
             # Operational Excellence
             'sales_productivity': recent_data['Revenue_per_Employee'].mean(),
-            'marketing_roi': (recent_data['Revenue'].sum() - recent_data['Marketing_Spend'].sum()) / recent_data['Marketing_Spend'].sum() * 100,
+            'marketing_roi': (recent_data['Revenue'].sum() - recent_data['Marketing_Spend'].sum()) / recent_data['Marketing_Spend'].sum() * 100 if recent_data['Marketing_Spend'].sum() > 0 else 0,
             'marketing_efficiency': recent_data['Marketing_Efficiency'].mean(),
             
             # Customer Analytics
@@ -341,11 +332,11 @@ class AdvancedFPASystem:
             
             # Market Position
             'market_share_current': recent_data['Market_Share'].mean(),
-            'competitive_advantage_index': min(100, (recent_data['Price_per_Unit'].mean() / recent_data['Competitor_Price'].mean()) * 100),
-            'price_competitiveness': (recent_data['Price_per_Unit'].mean() / recent_data['Competitor_Price'].mean()) * 100,
+            'competitive_advantage_index': min(100, (recent_data['Price_per_Unit'].mean() / recent_data['Competitor_Price'].mean()) * 100) if recent_data['Competitor_Price'].mean() > 0 else 50,
+            'price_competitiveness': (recent_data['Price_per_Unit'].mean() / recent_data['Competitor_Price'].mean()) * 100 if recent_data['Competitor_Price'].mean() > 0 else 100,
             
             # Financial Health
-            'financial_stability_score': 100 - min(50, recent_data['Revenue'].std() / recent_data['Revenue'].mean() * 100),
+            'financial_stability_score': 100 - min(50, recent_data['Revenue'].std() / recent_data['Revenue'].mean() * 100) if recent_data['Revenue'].mean() > 0 else 50,
             'growth_sustainability_index': min(100, max(0, 50 + recent_data['Revenue'].pct_change().mean() * 100)),
         }
         
@@ -356,7 +347,7 @@ class AdvancedFPASystem:
         if PROPHET_AVAILABLE:
             return self.prophet_forecast(data, metric, periods)
         else:
-            return self.ensemble_forecast(data, metric, periods)
+            return self.simple_forecast(data, metric, periods)
     
     def prophet_forecast(self, data, metric='Revenue', periods=30):
         """Prophet-based forecasting"""
@@ -364,6 +355,9 @@ class AdvancedFPASystem:
             # Prepare data for Prophet
             df_prophet = data[['Date', metric]].rename(columns={'Date': 'ds', metric: 'y'})
             df_prophet = df_prophet.dropna()
+            
+            if len(df_prophet) < 10:
+                return self.simple_forecast(data, metric, periods)
             
             # Create Prophet model
             model = Prophet(
@@ -392,24 +386,29 @@ class AdvancedFPASystem:
         """Simple forecasting as fallback"""
         recent_data = data[metric].tail(90).values
         
-        # Simple trend + seasonal
-        trend = np.polyfit(range(len(recent_data)), recent_data, 1)[0]
-        seasonal_pattern = []
-        
-        for i in range(7):  # Weekly pattern
-            week_data = recent_data[i::7]
-            if len(week_data) > 0:
-                seasonal_pattern.append(np.mean(week_data) - np.mean(recent_data))
-            else:
-                seasonal_pattern.append(0)
-        
-        forecasts = []
-        last_value = recent_data[-1]
-        
-        for i in range(periods):
-            seasonal_component = seasonal_pattern[i % 7]
-            forecast_value = last_value + (trend * (i + 1)) + seasonal_component
-            forecasts.append(forecast_value)
+        if len(recent_data) < 7:
+            # Not enough data for forecasting
+            avg_value = recent_data.mean() if len(recent_data) > 0 else 100000
+            forecasts = [avg_value] * periods
+        else:
+            # Simple trend + seasonal
+            trend = np.polyfit(range(len(recent_data)), recent_data, 1)[0] if len(recent_data) > 1 else 0
+            seasonal_pattern = []
+            
+            for i in range(7):  # Weekly pattern
+                week_data = recent_data[i::7]
+                if len(week_data) > 0:
+                    seasonal_pattern.append(np.mean(week_data) - np.mean(recent_data))
+                else:
+                    seasonal_pattern.append(0)
+            
+            forecasts = []
+            last_value = recent_data[-1] if len(recent_data) > 0 else 100000
+            
+            for i in range(periods):
+                seasonal_component = seasonal_pattern[i % 7] if len(seasonal_pattern) > 0 else 0
+                forecast_value = last_value + (trend * (i + 1)) + seasonal_component
+                forecasts.append(max(0, forecast_value))  # Ensure non-negative
         
         future_dates = pd.date_range(start=data['Date'].max() + timedelta(days=1), periods=periods)
         
@@ -420,78 +419,9 @@ class AdvancedFPASystem:
                 'yhat_lower': [f * 0.9 for f in forecasts],
                 'yhat_upper': [f * 1.1 for f in forecasts]
             }),
-            'model': None,
+            'model': 'Simple',
             'historical_fit': None
         }
-    
-    def ensemble_forecast(self, data, metric='Revenue', periods=30):
-        """Ensemble forecasting method"""
-        ts_data = data[metric].values
-        
-        # Feature engineering
-        X = []
-        y = []
-        
-        for i in range(30, len(ts_data)):
-            X.append(ts_data[i-30:i])
-            y.append(ts_data[i])
-        
-        X, y = np.array(X), np.array(y)
-        
-        if len(X) < 50:  # Not enough data for ensemble
-            return self.simple_forecast(data, metric, periods)
-        
-        # Split for validation
-        split_idx = int(len(X) * 0.8)
-        X_train, X_test = X[:split_idx], X[split_idx:]
-        y_train, y_test = y[:split_idx], y[split_idx:]
-        
-        # Flatten X for sklearn
-        X_train_flat = X_train.reshape(X_train.shape[0], -1)
-        X_test_flat = X_test.reshape(X_test.shape[0], -1)
-        
-        # Train models
-        rf_model = RandomForestRegressor(n_estimators=50, random_state=42)
-        gb_model = GradientBoostingRegressor(n_estimators=50, random_state=42)
-        
-        try:
-            rf_model.fit(X_train_flat, y_train)
-            gb_model.fit(X_train_flat, y_train)
-            
-            # Generate forecasts
-            last_sequence = ts_data[-30:]
-            forecasts = []
-            
-            for _ in range(periods):
-                # Prepare input
-                input_sequence = last_sequence.reshape(1, -1)
-                
-                # Get predictions
-                rf_pred = rf_model.predict(input_sequence)[0]
-                gb_pred = gb_model.predict(input_sequence)[0]
-                
-                # Ensemble prediction
-                ensemble_pred = (rf_pred + gb_pred) / 2
-                forecasts.append(ensemble_pred)
-                
-                # Update sequence
-                last_sequence = np.append(last_sequence[1:], ensemble_pred)
-            
-            future_dates = pd.date_range(start=data['Date'].max() + timedelta(days=1), periods=periods)
-            
-            return {
-                'forecast': pd.DataFrame({
-                    'ds': future_dates,
-                    'yhat': forecasts,
-                    'yhat_lower': [f * 0.9 for f in forecasts],
-                    'yhat_upper': [f * 1.1 for f in forecasts]
-                }),
-                'model': 'Ensemble',
-                'historical_fit': None
-            }
-        except Exception as e:
-            st.warning(f"Ensemble forecasting failed: {str(e)}. Using simple forecasting.")
-            return self.simple_forecast(data, metric, periods)
     
     def scenario_analysis(self, base_data, scenarios):
         """What-if scenario analysis"""
@@ -501,7 +431,7 @@ class AdvancedFPASystem:
             scenario_data = base_data.copy()
             
             # Apply scenario changes
-            if 'price_change' in params:
+            if 'price_change' in params and params['price_change'] != 0:
                 scenario_data['Price_per_Unit'] *= (1 + params['price_change'] / 100)
                 scenario_data['Revenue'] = scenario_data['Price_per_Unit'] * scenario_data['Units_Sold']
                 scenario_data['Gross_Margin'] = scenario_data['Revenue'] - scenario_data['Cost_of_Goods']
@@ -509,7 +439,7 @@ class AdvancedFPASystem:
                 scenario_data['Gross_Margin_Percent'] = (scenario_data['Gross_Margin'] / scenario_data['Revenue']) * 100
                 scenario_data['Net_Margin_Percent'] = (scenario_data['Net_Margin'] / scenario_data['Revenue']) * 100
             
-            if 'market_shock' in params:
+            if 'market_shock' in params and params['market_shock'] != 0:
                 shock_factor = 1 + params['market_shock'] / 100
                 scenario_data['Revenue'] *= shock_factor
                 scenario_data['Units_Sold'] *= shock_factor
@@ -518,7 +448,7 @@ class AdvancedFPASystem:
                 scenario_data['Gross_Margin_Percent'] = (scenario_data['Gross_Margin'] / scenario_data['Revenue']) * 100
                 scenario_data['Net_Margin_Percent'] = (scenario_data['Net_Margin'] / scenario_data['Revenue']) * 100
             
-            if 'cost_change' in params:
+            if 'cost_change' in params and params['cost_change'] != 0:
                 scenario_data['Cost_of_Goods'] *= (1 + params['cost_change'] / 100)
                 scenario_data['Gross_Margin'] = scenario_data['Revenue'] - scenario_data['Cost_of_Goods']
                 scenario_data['Net_Margin'] = scenario_data['Gross_Margin'] - scenario_data['Marketing_Spend']
@@ -533,48 +463,56 @@ class AdvancedFPASystem:
         """Generate intelligent alerts"""
         alerts = []
         
-        # Revenue alerts
-        if kpis['revenue_growth_rate'] < -10:
-            alerts.append({
-                'type': 'critical',
-                'category': 'Revenue',
-                'message': f"🚨 CRITICAL: Revenue declining by {kpis['revenue_growth_rate']:.1f}% - Immediate action required",
-                'recommendation': 'Implement emergency revenue recovery plan'
-            })
-        elif kpis['revenue_growth_rate'] < -5:
-            alerts.append({
-                'type': 'warning',
-                'category': 'Revenue',
-                'message': f"⚠️ WARNING: Revenue declining by {kpis['revenue_growth_rate']:.1f}%",
-                'recommendation': 'Review sales strategy and market conditions'
-            })
-        
-        # Margin alerts
-        if kpis['margin_compression_risk'] > 5:
-            alerts.append({
-                'type': 'critical',
-                'category': 'Profitability',
-                'message': f"🔴 CRITICAL: Severe margin compression ({kpis['margin_compression_risk']:.1f}%)",
-                'recommendation': 'Urgent cost structure review required'
-            })
-        
-        # Customer health alerts
-        if kpis['churn_risk_prediction'] > 40:
-            alerts.append({
-                'type': 'warning',
-                'category': 'Customer',
-                'message': f"🔥 HIGH CHURN RISK: {kpis['churn_risk_prediction']:.1f}%",
-                'recommendation': 'Launch customer retention initiatives'
-            })
-        
-        # Positive alerts
-        if kpis['revenue_growth_rate'] > 20:
-            alerts.append({
-                'type': 'success',
-                'category': 'Growth',
-                'message': f"🚀 EXCEPTIONAL GROWTH: Revenue up {kpis['revenue_growth_rate']:.1f}%",
-                'recommendation': 'Scale successful strategies'
-            })
+        try:
+            # Revenue alerts
+            revenue_growth = kpis.get('revenue_growth_rate', 0)
+            if revenue_growth < -10:
+                alerts.append({
+                    'type': 'critical',
+                    'category': 'Revenue',
+                    'message': f"🚨 CRITICAL: Revenue declining by {revenue_growth:.1f}% - Immediate action required",
+                    'recommendation': 'Implement emergency revenue recovery plan'
+                })
+            elif revenue_growth < -5:
+                alerts.append({
+                    'type': 'warning',
+                    'category': 'Revenue',
+                    'message': f"⚠️ WARNING: Revenue declining by {revenue_growth:.1f}%",
+                    'recommendation': 'Review sales strategy and market conditions'
+                })
+            
+            # Margin alerts
+            margin_risk = kpis.get('margin_compression_risk', 0)
+            if margin_risk > 5:
+                alerts.append({
+                    'type': 'critical',
+                    'category': 'Profitability',
+                    'message': f"🔴 CRITICAL: Severe margin compression ({margin_risk:.1f}%)",
+                    'recommendation': 'Urgent cost structure review required'
+                })
+            
+            # Customer health alerts
+            churn_risk = kpis.get('churn_risk_prediction', 0)
+            if churn_risk > 40:
+                alerts.append({
+                    'type': 'warning',
+                    'category': 'Customer',
+                    'message': f"🔥 HIGH CHURN RISK: {churn_risk:.1f}%",
+                    'recommendation': 'Launch customer retention initiatives'
+                })
+            
+            # Positive alerts
+            if revenue_growth > 20:
+                alerts.append({
+                    'type': 'success',
+                    'category': 'Growth',
+                    'message': f"🚀 EXCEPTIONAL GROWTH: Revenue up {revenue_growth:.1f}%",
+                    'recommendation': 'Scale successful strategies'
+                })
+                
+        except Exception as e:
+            # If there's any error in alert generation, just return empty list
+            alerts = []
         
         return alerts
 
@@ -986,7 +924,7 @@ def render_scenario_lab(system, filtered_data):
                     'Total Revenue': result['Revenue'].sum(),
                     'Total Margin': result['Net_Margin'].sum(),
                     'Avg Margin %': result['Net_Margin_Percent'].mean(),
-                    'Revenue Impact': ((result['Revenue'].sum() - scenario_results['Baseline']['Revenue'].sum()) / scenario_results['Baseline']['Revenue'].sum()) * 100 if 'Baseline' in scenario_results else 0
+                    'Revenue Impact': ((result['Revenue'].sum() - scenario_results['Baseline']['Revenue'].sum()) / scenario_results['Baseline']['Revenue'].sum()) * 100 if 'Baseline' in scenario_results and scenario_results['Baseline']['Revenue'].sum() > 0 else 0
                 })
             
             comparison_df = pd.DataFrame(comparison_data)
@@ -1026,9 +964,9 @@ def render_alerts_dashboard(alerts, kpis):
     st.header("⚠️ Intelligent Alert System")
     
     # Alert summary
-    critical_alerts = [a for a in alerts if a['type'] == 'critical']
-    warning_alerts = [a for a in alerts if a['type'] == 'warning']
-    success_alerts = [a for a in alerts if a['type'] == 'success']
+    critical_alerts = [a for a in alerts if a.get('type') == 'critical']
+    warning_alerts = [a for a in alerts if a.get('type') == 'warning']
+    success_alerts = [a for a in alerts if a.get('type') == 'success']
     
     col1, col2, col3 = st.columns(3)
     
@@ -1042,17 +980,18 @@ def render_alerts_dashboard(alerts, kpis):
     # Display alerts
     if alerts:
         for alert in alerts:
-            alert_class = f"alert-{alert['type']}"
-            if alert['type'] == 'success':
+            alert_type = alert.get('type', 'warning')
+            alert_class = f"alert-{alert_type}"
+            if alert_type == 'success':
                 alert_class = 'alert-success'
-            elif alert['type'] == 'critical':
+            elif alert_type == 'critical':
                 alert_class = 'alert-critical'
             else:
                 alert_class = 'alert-warning'
             
             st.markdown(
                 f'''<div class="{alert_class}">
-                    <h4>{alert["message"]}</h4>
+                    <h4>{alert.get("message", "Alert")}</h4>
                     <p><strong>Recommendation:</strong> {alert.get("recommendation", "Review and take appropriate action")}</p>
                 </div>''',
                 unsafe_allow_html=True
