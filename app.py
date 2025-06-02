@@ -343,7 +343,7 @@ class AdvancedFPASystem:
         return kpis
     
     def generate_alerts(self, data, kpis):
-        """Generate intelligent alerts"""
+        """Generate intelligent alerts based on KPIs and data"""
         alerts = []
         
         try:
